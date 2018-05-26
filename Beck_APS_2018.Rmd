@@ -311,7 +311,7 @@ First up is structure. From an idiographic perspective, structure is the stable 
 
 The first graph just shows two example participants from the first wave.  
 ```{r results = 'hide', warning = FALSE, message = FALSE, fig.height=4, fig.width=8}
-pdf("~/Box/network/presentations/APS 2018/structure_plot.pdf", width = 8, height = 4)
+pdf("~/Box/network/presentations/APS 2018/plots/structure_plot.pdf", width = 8, height = 4)
 par(mfrow = c(1,2))
 gVAR_fit %>%
 filter(SID %in% c("10506", "39941") & wave == 1) %>%
@@ -400,7 +400,7 @@ Next, is the question of structure. First, we'll look at one network with a bunc
 4. Personality + States / State Expressions  
 Then, we will extract those results and plot both the network plots and a profile of the partial directed temporal and contemporaneous networks.  
 ```{r}
-pdf("~/Box/network/presentations/APS 2018/process_plot.pdf", width = 4, height = 4)
+pdf("~/Box/network/presentations/APS 2018/plots/process_plot.pdf", width = 4, height = 4)
 par(mfrow = c(1,1))
 gVAR_fit %>%
 filter(SID %in% c("10506") & wave == 1) %>%
@@ -481,7 +481,7 @@ temp_e <- temp_fun(fit_e, 19497)
 temp_s <- temp_fun(fit_s, 19497)
 
 # network plots
-pdf("~/Box/network/presentations/APS 2018/processes_plot.pdf", width = 8, height = 8)
+pdf("~/Box/network/presentations/APS 2018/plots/processes_plot.pdf", width = 8, height = 8)
 par(mfrow = c(2,2))
 plot(idio_plot_fun(fit, "19497", "1", "Temporal"))
 plot(idio_plot_fun(fit_t, "19497", "1", "Temporal"))
@@ -536,7 +536,7 @@ model_fun <- function(situations){
             strip.text = element_text(face = "bold", color = "white"),
             strip.background = element_rect(fill = "#6f30a0", color = NULL))
   file <- str_remove(situations[length(situations)], "/")
-  ggsave(sprintf("%s/processes_profile_%s.png", data_path, file), width = 9, height = 4)
+  ggsave(sprintf("%s/plots/processes_profile_%s.png", data_path, file), width = 9, height = 4)
 }
 
 # profile plots
@@ -609,7 +609,7 @@ df %>%
         axis.title = element_text(face = "bold", size = rel(1.2)),
         legend.text = element_text(face = "bold", size = rel(1)),
         legend.title = element_text(face = "bold", size = rel(1)))
-ggsave(sprintf("%s/devel_plot.png", data_path), width = 6, height = 3)
+ggsave(sprintf("%s/plots/devel_plot.png", data_path), width = 6, height = 3)
 ```
 
 ### Cross-Wave gifs  
@@ -698,13 +698,13 @@ gVAR_fit %>% unnest(contemp) %>%
           axis.title = element_text(face = "bold", size = rel(1.2)),
           strip.text = element_text(face = "bold", size = rel(1.2), color = "white"),
           strip.background = element_rect(fill = "#6f30a0"))
-ggsave(file = sprintf("%s/consistency_histogram.png", data_path), width = 6, height = 3)
+ggsave(file = sprintf("%s/plots/consistency_histogram.png", data_path), width = 6, height = 3)
 ```
 
 
 # Challenges
 
-## Velocity  
+## The Time Interval Problem    
 ```{r}
 tibble(
   Hour = 1:10,
@@ -717,7 +717,7 @@ tibble(
   theme_classic() +
   theme(axis.text = element_text(face = "bold", size = rel(1.2)),
         axis.title = element_text(face = "bold", size = rel(1.2)))
-ggsave(sprintf("%s/displacement.png", data_path), width = 6, height = 3)
+ggsave(sprintf("%s/plots/displacement.png", data_path), width = 6, height = 3)
 ```
 
 ## Psychometrics  
@@ -795,7 +795,7 @@ gVAR_fit %>% filter(!is.na(loadings)) %>% unnest(loadings) %>%
         strip.background = element_rect(fill = "blue", color = NULL),
         strip.text = element_text(face = "bold", size = rel(1.2), color = "white"),
         axis.text.x = element_text(angle=45, hjust = 1))
-ggsave(file = sprintf("%s/p_filtering.png", data_path), width = 6, height = 4)  
+ggsave(file = sprintf("%s/plots/p_filtering.png", data_path), width = 6, height = 4)  
 
 # let's plot these for people who have a lot of items that load highly on
 # the first factor or few items that load highly on it
@@ -824,7 +824,7 @@ gVAR_fit %>% filter(!is.na(loadings)) %>% unnest(loadings) %>%
           strip.background = element_rect(fill = "blue", color = NULL),
           strip.text = element_text(face = "bold", size = rel(1.2), color = "white"),
           axis.text.x = element_text(angle=45, hjust = 1, size = rel(.7)))
-ggsave(file = sprintf("%s/p_filtering_agg.png", data_path), width = 11, height = 7)  
+ggsave(file = sprintf("%s/plots/p_filtering_agg.png", data_path), width = 11, height = 7)  
 ```
 
 ## Aggregation  
@@ -842,7 +842,7 @@ subs <- (gVAR_fit %>%
   filter((rank %in% 1:2 | rank2 %in% 1:2) & wave == 1) %>% 
   arrange(rank))$SID
 
-pdf(sprintf("%s/agg_nets.pdf", data_path), width = 4, height = 4)
+pdf(sprintf("%s/plots/agg_nets.pdf", data_path), width = 4, height = 4)
 par(mfrow = c(2,2))
 gVAR_fit %>%
   filter(wave == 1 & SID %in% subs) %>%
