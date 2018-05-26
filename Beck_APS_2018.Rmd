@@ -1,5 +1,6 @@
 ---
-title: "Do changes in personality imply changes in behavior? A longitudinal ESM study"
+title: "Idiographic Personality: A Methodological Perspective on Measuring and Modeling Individuals"
+subtitle: "Association for Psychological Science Conference 2018"
 author: 
   - "Emorie D Beck"
 date: "`r Sys.setlocale('LC_TIME', 'C'); format(Sys.time(), '%d\\\\. %B %Y')`"
@@ -8,7 +9,7 @@ output:
     theme: united
     highlight: tango
     df_print: paged
-    code_folding: hide
+    code_folding: show
     toc: true
     toc_float: true
     toc_depth: 2
@@ -26,6 +27,7 @@ knitr::opts_chunk$set(echo = T, warning = F, message = F, error = F)
 
 # Workspace
 ## Packages
+First, we'll load the R packages we need to run the analyses. 
 ```{r packages}
 library(lavaan)
 library(psych)
@@ -40,6 +42,7 @@ library(plyr)
 library(tidyverse)
 ```
 
+Now, we'll set the data path, which will be both where we load the data from and where we save results to. Then, we'll load the codebook that will index the variables we'll use.    
 ```{r, eval = T}
 data_path <- "~/Box/network/presentations/APS 2018"
 
@@ -48,6 +51,7 @@ esm_codebook <- sprintf("%s/Codebook.csv", data_path) %>%
   tbl_df
 ```
 
+The chunk below won't run but is included for transparency. This chunk will read in the raw data files with identifying information and replace identifying information (Subject IDs) with random IDs and remove variables not used in this analysis. Then, we'll save those data to .csv that will be open access.  
 ```{r eval = F}
 subs <- sprintf("%s/subs.csv", data_path) %>% read.csv %>% tbl_df
 
@@ -72,6 +76,8 @@ write.csv(wave4_all, sprintf("%s/data/esm_w4_redacted.csv", data_path), row.name
 write.csv(wave7_all, sprintf("%s/data/esm_w7_redacted.csv", data_path), row.names = F)
 ```
 
+
+Now, we'll read in the redacted data and clean them. Basically, we want to read in the reduced data files, rename the variables to more informative names, and do some basic cleaning.  
 ```{r}
 wave1_all <- sprintf("%s/data/esm_w1_redacted.csv", data_path) %>% read.csv %>% tbl_df
 wave4_all <- sprintf("%s/data/esm_w4_redacted.csv", data_path) %>% read.csv %>% tbl_df
@@ -131,6 +137,9 @@ w2_com$waveDay <- paste(w2_com$Wave, w2_com$day, sep = ".")
 w1_com$SID2 <- as.numeric(as.character(w1_com$SID))
 w2_com$SID2 <- as.numeric(as.character(w2_com$SID))
 
+# a few variable have 0 SD. This will create a problem with estimation, so we'll add
+# a tiny amount of jitter. That variable won't have any edges due to regularization 
+# but we won't have to toss those subjects 
 jitter_fun <- function(df){
   sd_fun <- function(x){if(sd(x, na.rm = T) == 0) jitter(x, amount = runif(1,0,.05)) else x}
   df2 <- data.frame(apply(df, 2, sd_fun))
@@ -138,6 +147,8 @@ jitter_fun <- function(df){
   return(df2)
 }
 
+# wave 1
+# Need to keep subjects who have at least 10 assessments
 w1_com <- tbl_df(w1_com) %>%
   group_by(SID) %>%
   arrange(day, hourBlock) %>%
@@ -149,12 +160,15 @@ w1_com <- tbl_df(w1_com) %>%
   mutate(count = n(), wave = "1") %>%
   filter(count > 10) 
 
+# adding the jitter 
 w1_test <- w1_com %>%
   group_by(SID, SID2, count, wave) %>% 
   nest() %>%
   mutate(data2 = map(data, jitter_fun)) %>%
   unnest(data2, .drop = T)
 
+# wave 2
+# Need to keep subjects who have at least 10 assessments
 w2_com <- tbl_df(w2_com) %>%
   group_by(SID) %>%
   arrange(waveDay, hourBlock) %>%
@@ -166,60 +180,40 @@ w2_com <- tbl_df(w2_com) %>%
   mutate(count = n(), wave = "2") %>%
   filter(count > 10) 
 
+# adding the jitter 
 w2_test <- w2_com %>%
   group_by(SID, SID2, count, wave) %>% 
   nest() %>%
   mutate(data2 = map(data, jitter_fun)) %>%
   unnest(data2, .drop = T)
-
-# save those subjects to a vector
-subs2_w1 <- as.character(unique(w1_test$SID))
-subs2_w2 <- as.character(unique(w2_test$SID))
-
-#compute scale scores for BF domains
-#first create the keys by location (the conventional way)
-keys.list <- list(
-  extraversion.esm = c(-1, 6),
-  agreeableness.esm = c(-1, 7),
-  conscientiousness.esm = c(-3, 8),
-  neuroticism.esm = c(-4, 5, 9))
-keys <- make.keys(9,keys.list,item.labels=colnames(w1_com)[6:14])
-
-w1_pop <- w1_com; w2_pop <- w2_com
-
-ncol_w1 <- dim(w1_pop)[2]; ncol_w2 <- dim(w2_pop)[2]
-w1_pop[(ncol_w1 + 1):(ncol_w1 + 4)] <- scoreItems(keys,w1_pop[,6:14],min=1,max=5)$scores
-w2_pop[(ncol_w2 + 1):(ncol_w2 + 4)] <- scoreItems(keys,w2_com[,6:14],min=1,max=5)$scores
-
-colnames(w1_pop)[(ncol_w1 + 1):(ncol_w1 + 4)] <- names(keys.list)
-colnames(w2_pop)[(ncol_w2 + 1):(ncol_w2 + 4)] <- names(keys.list)
-
-esm.composites <- w1_pop %>% mutate(wave = "1") %>% ungroup() %>%
-  select(SID, wave, A_rude:connected, extraversion.esm:neuroticism.esm) %>%
-  full_join(w2_pop %>% mutate(wave = "2") %>%
-              select(SID, wave, A_rude:connected, extraversion.esm:neuroticism.esm)) %>%
-  mutate(SID = as.character(SID)) %>%
-  gather(key = item, value = value, A_rude:neuroticism.esm) %>%
-  group_by(SID, wave, item) %>%
-  summarize(mean = mean(value, na.rm = T)) %>%
-  spread(key = item, value = mean)
 ```
 
-```{r, eval = F}
-library(mlVAR)
-fit1_w1 <- mlVAR(w1_test, varnames[6:23], beepvar = "beepvar3", nCores = 3, scale = F,
-                idvar = "SID", contemporaneous = "orthogonal", temporal = "orthogonal")
-fit1_w2 <- mlVAR(w2_test, varnames[6:23], beepvar = "beepvar3", nCores = 3, scale = F,
-                idvar = "SID", contemporaneous = "orthogonal", temporal = "orthogonal")
-save(fit1_w1, fit1_w2, file = sprintf("%s/mlVAR.RData", data_path))
+We need to detrend the data because they violate the non-stationarity assumption. We're just going to use simple OLS although there are alternative and arguably better alternatives.  
 
-library(graphicalVAR)
+```{r}
+detrend <- function(df)
+
+dat <- w1_test %>%
+  full_join(w2_test) %>%
+  gather(key = var, value = value, A_rude:connected) %>%
+  group_by(SID, wave, count, var) %>%
+  nest() %>%
+  mutate(m = map(data, ~lm(value ~ beepvar3, data = .)),
+         p = map(m, broom::augment)) %>%
+  unnest(p) %>%
+  select(SID:var, .resid, beepvar3) %>%
+  spread(key = var, value = .resid)
+```
+
+
+Now, we'll fit the idiographic graphical VAR models using the `graphicalVAR` package. We're going to the eBIC hyperparameter gamma to 0 for discovery and allow the regularizing parameter lambda to vary between .025 and .25. Some of these models will throw errors because of the small amount of data. We'll ignore them for now since the goal here is largely demonstrative.  
+```{r, eval = F}
 gVAR_fun <- function(x, SID, wave){
   print(paste(wave, SID))
   n <- dim(x)[1]
   gamma <- 0
   lambda <- seq(.025, .25, .025)
-  x <- x %>% select(A_rude:connected, -SID2, -beepvar3)
+  x <- x %>% select(A_rude:connected, -beepvar3)
   fit <-
     graphicalVAR(x, gamma = gamma, maxit.in = 1000, maxit.out = 1000,
                       lambda_beta = lambda, lambda_kappa = lambda, 
@@ -227,60 +221,19 @@ gVAR_fun <- function(x, SID, wave){
   return(fit)
 }
 
-gVAR_fit <- w1_test %>%
-  full_join(w2_test) %>%
-  filter(!(SID %in% c("97898", "13518", "64875", "74435", "83106", "97159", "64869", "37024"))) %>%
+
+
+gVAR_fit <- dat %>%
+  filter(!(SID %in% c("97898", "13518", "64875", "74435", "83106", "97159", "64869", "37024", "12715"))) %>%
   group_by(SID, wave, count) %>%
   nest() %>%
-  mutate(gVAR_fit = pmap(list(data, SID, wave), possibly(gVAR_fun, NA_real_)))
-save(gVAR_fit, file = "~/Box/network/other projects/EJP Target Article Commentary/graphicalVAR_allSubs.RData")
+  mutate(gVAR_fit = pmap(list(data, SID, wave), gVAR_fun))
+save(gVAR_fit, file = sprintf("%s/graphicalVAR_allSubs.RData", data_path))
 ```
 
+Now, that the models are run, we want to extract the partial directed and contemporaneous correlations, which can be used to construct the idiographic networks. All of these will be saved into the same data nested data frame using tools from the R packages `purrr` and `tidyr`.   
 ```{r, eval = T, results = 'hide'}
-load(sprintf("%s/mlVAR.RData", data_path))
 load(sprintf("%s/graphicalVAR_allSubs.RData", data_path))
-
-############################################
-############### population #################
-############################################
-sum_fit1_w1        <- summary(fit1_w1)
-sum_fit1_w2        <- summary(fit1_w2)
-
-temporal_effects_w1 <- tbl_df(sum_fit1_w1$temporal) %>% mutate(wave = "1")
-temporal_effects_w2 <- tbl_df(sum_fit1_w2$temporal) %>% mutate(wave = "2")
-
-contemp_effects_w1 <- fit1_w1$results$Theta$pcor$mean
-contemp_effects_w2 <- fit1_w2$results$Theta$pcor$mean
-
-contemp_long_fun <- function(fit, Wave){
-  colnames(fit) <- colnames(w1)[6:23]; rownames(fit) <- colnames(w1)[6:23]
-  fit <- fit[,order(colnames(fit))]
-  fit <- fit[order(rownames(fit)),]
-  fit[lower.tri(fit, diag = T)] <- NA
-  fit.long <- tbl_df(fit) %>%
-    mutate(Var1 = colnames(.),
-           type = "Contemporaneous", wave = Wave) %>%
-    gather(key = Var2, value = weight, A_kind:self_esteem) %>%
-    filter(!is.na(weight)) %>%
-    unite(var, Var1, Var2, sep = ".", remove = F)
-}
-
-contemp_eff_w1 <- contemp_long_fun(contemp_effects_w1, "1")
-contemp_eff_w2 <- contemp_long_fun(contemp_effects_w2, "2")
-
-cors <- data.frame(
-  comparison = c("W1 v. W2"),
-  type = c("temporal", "contemporaneous"),
-  raw_cor = 
-    c(cor(sum_fit1_w1$temporal$fixed,
-          sum_fit1_w2$temporal$fixed),
-      cor(sum_fit1_w1$contemporaneous$pcor,
-          sum_fit1_w2$contemporaneous$pcor)))
-
-pander::pandoc.table(cors, summary = F, 
-             caption = "Correlations of Temporal Fixed Effects Edges Across Waves")
-
-
 ############################################
 ############## idiographic #################
 ############################################
@@ -329,7 +282,7 @@ idio_plot_fun <- function(data, subject, wave, type){
     qgraph(data_mod, layout = "spring", loop = .7, node.width = 1.85, edge.width = 1, esize = 7,
            title = sprintf("%s Wave %s for S%s", type, wave, subject), label.font = 2, repulsion = .8,
                    label.fill.vertical = 1, label.fill.horizontal = 1, edge.color = "black",
-                   groups = b5_groups, color = rev(t(RColorBrewer::brewer.pal(9, "Purples")[seq(1,9,2)])),
+                   groups = b5_groups, color = rev(c("#FFFFB3", t(RColorBrewer::brewer.pal(9, "Purples")[seq(3,9,2)]))),
                    legend = F, DoNotPlot = TRUE, mar = c(4,4,4,4))
   #change lines to dashed
   plot$graphAttributes$Edges$lty[plot$Edgelist$weight < 0] <- 2
@@ -352,9 +305,11 @@ gVAR_fit <- gVAR_fit %>%
                           possibly(idio_plot_fun, NA_real_)))
 ```
 
-
-# Introduction  
+# Promises
 ## Structure  
+First up is structure. From an idiographic perspective, structure is the stable personal tendencies within a person, or the consistent temporal and contemporaneous behavioral patterns across assessments.  
+
+The first graph just shows two example participants from the first wave.  
 ```{r results = 'hide', warning = FALSE, message = FALSE, fig.height=4, fig.width=8}
 pdf("~/Box/network/presentations/APS 2018/structure_plot.pdf", width = 8, height = 4)
 par(mfrow = c(1,2))
@@ -364,9 +319,17 @@ select(SID, wave, temp_plot, contemp_plot) %>%
 arrange(wave, desc(SID)) %>%
 mutate(map(contemp_plot, plot))
 dev.off()
+
+par(mfrow = c(1,2))
+gVAR_fit %>%
+filter(SID %in% c("10506", "39941") & wave == 1) %>%
+select(SID, wave, temp_plot, contemp_plot) %>%
+arrange(wave, desc(SID)) %>%
+mutate(map(contemp_plot, plot))
 ```
 
-### Structure Difference gifs
+### Structure Difference gifs  
+The code below creates a gif of each individual's contemporaneous network in the first wave using the R package `animation`.  
 ```{r}
 subjects <- (gVAR_fit %>% group_by(SID) %>% summarize(n = n()) %>% filter(n == 2))$SID
 
@@ -387,10 +350,11 @@ loop.animate <- function() {
 }
 
 # create GIF of all edges
-saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots_single.gif", ani.width = 500, ani.height = 500,
-        imgdir = data_path)
+# saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots_single.gif", ani.width = 500, ani.height = 500,
+#         imgdir = data_path)
 ```
 
+The code below creates a gif of the profile of edge weights of the idiographic contemporaneous networks in the first wave for each participant using the R packages `ggplot2` and `animation`.  
 ```{r}
 draw.a.plot <- function(sid){
   sub <- subjects[seq(1,which(subjects == sid))]
@@ -424,11 +388,17 @@ loop.animate <- function() {
 }
 
 # create GIF of all edges
-saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots_ew_structure.gif", ani.width = 250, ani.height = 500,
-        imgdir = data_path)
+# saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots_ew_structure.gif", ani.width = 250, ani.height = 500,
+#         imgdir = data_path)
 ```
 
 ## Processes  
+Next, is the question of structure. First, we'll look at one network with a bunch of processes thrown in. Then we'll estimate 4 new networks for that participant:  
+1. Personality only (9 items from the BFI)  
+2. Personality + Triggering Situation  
+3. Personality + Expectancy  
+4. Personality + States / State Expressions  
+Then, we will extract those results and plot both the network plots and a profile of the partial directed temporal and contemporaneous networks.  
 ```{r}
 pdf("~/Box/network/presentations/APS 2018/process_plot.pdf", width = 4, height = 4)
 par(mfrow = c(1,1))
@@ -438,6 +408,16 @@ select(SID, wave, temp_plot, contemp_plot) %>%
 arrange(wave, desc(SID)) %>%
 mutate(map(contemp_plot, plot))
 dev.off()
+```
+
+
+```{r, results='hide'}
+par(mfrow = c(1,1))
+gVAR_fit %>%
+filter(SID %in% c("10506") & wave == 1) %>%
+select(SID, wave, temp_plot, contemp_plot) %>%
+arrange(wave, desc(SID)) %>%
+mutate(map(contemp_plot, plot))
 
 df <- (gVAR_fit %>% filter(SID =="19497" & wave == 1))$data[[1]]
 
@@ -451,7 +431,7 @@ fit_t <- graphicalVAR(
   , maxit.out = 1000
   , lambda_beta = lambda
   , lambda_kappa = lambda
-  , verbose = T
+  , verbose = F
   , scale = F
   , centerWithin = F
   )
@@ -464,7 +444,7 @@ fit_e <- graphicalVAR(
   , maxit.out = 1000
   , lambda_beta = lambda
   , lambda_kappa = lambda
-  , verbose = T
+  , verbose = F
   , scale = F
   , centerWithin = F
   )
@@ -477,7 +457,7 @@ fit_s <- graphicalVAR(
   , maxit.out = 1000
   , lambda_beta = lambda
   , lambda_kappa = lambda
-  , verbose = T
+  , verbose = F
   , scale = F
   , centerWithin = F
   )
@@ -490,7 +470,7 @@ fit <- graphicalVAR(
   , maxit.out = 1000
   , lambda_beta = lambda
   , lambda_kappa = lambda
-  , verbose = T
+  , verbose = F
   , scale = F
   , centerWithin = F
   )
@@ -500,6 +480,7 @@ temp_t <- temp_fun(fit_t, 19497)
 temp_e <- temp_fun(fit_e, 19497)
 temp_s <- temp_fun(fit_s, 19497)
 
+# network plots
 pdf("~/Box/network/presentations/APS 2018/processes_plot.pdf", width = 8, height = 8)
 par(mfrow = c(2,2))
 plot(idio_plot_fun(fit, "19497", "1", "Temporal"))
@@ -511,8 +492,14 @@ plot(idio_plot_fun(fit_s, "19497", "1", "Temporal"))
 # title("States / State Expression")
 dev.off()
 
+plot(idio_plot_fun(fit,   "19497", "1", "Temporal"))
+plot(idio_plot_fun(fit_t, "19497", "1", "Temporal"))
+plot(idio_plot_fun(fit_e, "19497", "1", "Temporal"))
+plot(idio_plot_fun(fit_s, "19497", "1", "Temporal"))
+
 vars <- unique(temp$from)
 
+# profile correlations between personality variables across the networks
 (temp %>% mutate(model = "Personality") %>%
   full_join(temp_t %>% mutate(model = "Triggering Situations")) %>%
   full_join(temp_e %>% mutate(model = "Expectancies")) %>%
@@ -522,6 +509,7 @@ vars <- unique(temp$from)
   select(Personality, everything(),-from, -type, -to) %>% 
   as.matrix() %>% cor(., use = "pairwise"))[,1]
 
+# join the data together for plotting 
 df <- temp %>% mutate(model = "Personality") %>%
   full_join(temp_t %>% mutate(model = "Triggering Situations")) %>%
   full_join(temp_e %>% mutate(model = "Expectancies")) %>%
@@ -531,25 +519,27 @@ df <- temp %>% mutate(model = "Personality") %>%
   mutate(model = factor(model, levels = c("Personality", "Triggering Situations", "Expectancies", "States / State Expressions")))
   # unite(var, from, to, sep = " -> ") %>%
 
+# create a plot to iteratively add a subset of the models to a profile plot 
 model_fun <- function(situations){
   df %>% filter(model %in% situations) %>%
     ggplot(aes(x = from, y = weight, color = model, group = model)) +
       geom_line() +
-      facet_grid(to~.) +
+      facet_grid(~to) +
       labs(x = NULL, color = NULL)+
-      coord_flip() +
+      # coord_flip() +
       theme_classic() +
-      theme(legend.position = c(.3, .4),
-            axis.text.y = element_text(face = "bold", size = rel(.8)),
-            axis.text.x = element_text(face = "bold", size = rel(1.2)),
+      theme(legend.position = c(.45, .2),
+            axis.text.x = element_text(face = "bold", size = rel(.65), angle = 45, hjust = 1),
+            axis.text.y = element_text(face = "bold", size = rel(1.2)),
             legend.text = element_text(face = "bold", size = rel(.85)),
             legend.background = element_rect(fill = NULL, color = NULL),
             strip.text = element_text(face = "bold", color = "white"),
             strip.background = element_rect(fill = "#6f30a0", color = NULL))
   file <- str_remove(situations[length(situations)], "/")
-  ggsave(sprintf("%s/processes_profile_%s.png", data_path, file), width = 4.5, height = 9)
+  ggsave(sprintf("%s/processes_profile_%s.png", data_path, file), width = 9, height = 4)
 }
 
+# profile plots
 model_fun("Personality")
 model_fun(c("Personality", "Triggering Situations"))
 model_fun(c("Personality", "Triggering Situations", "Expectancies"))
@@ -559,7 +549,9 @@ model_fun(c("Personality", "Triggering Situations", "Expectancies", "States / St
 
 ## Development
 ### Difference Plots  
+First, I'll create a plot that shades the region between the edge weight profiles to highlight cross-wave consistency and change. This is an imperfect solution taken from Stack Overflow, so I'm only going to use a subset of the edges.  
 ```{r}
+# set the data up
 df <- gVAR_fit %>% unnest(contemp) %>% select(-count) %>%
   filter(SID %in% 10506) %>%
   spread(key = wave, value = weight) %>%
@@ -569,10 +561,13 @@ df <- gVAR_fit %>% unnest(contemp) %>% select(-count) %>%
   filter(var %in% unique(var)[1:20]) %>%
   group_by(SID, var) %>%
   mutate(lower = min(weight, na.rm = T), upper = max(weight, na.rm = T)) %>%
+  ungroup()
 v <- tibble(x = 1:20, y = unique(df$var))
 
+# change the names for ordering and use in the function below 
 df <- df %>% mutate(v = as.numeric(plyr::mapvalues(var, v$y, v$x)))
 
+# solution taken from stack overflow
 mwave <- function(x){
   x <- x[order(x$v), ]
   y <- x[-c(1,2, nrow(x) -1, nrow(x)), ]
@@ -599,6 +594,7 @@ mgroup <- function(x){
 
 df2 <- ddply(df2, .(group), mgroup)
 
+# plot the differences across wave for the example subjects 
 df %>%
   ggplot(aes(x = v, y = weight, group = wave)) +
   scale_x_continuous(breaks = seq(1,20,1), labels = v$y) +
@@ -616,7 +612,8 @@ df %>%
 ggsave(sprintf("%s/devel_plot.png", data_path), width = 6, height = 3)
 ```
 
-### Cross-Wave gifs
+### Cross-Wave gifs  
+Now, I'll create a gif of the network plots for each subject with two waves to highlight differences in network structure across waves. 
 ```{r}
 subs <- (gVAR_fit %>% group_by(SID) %>% summarize(n = n()) %>% filter(n == 2))$SID
 
@@ -637,10 +634,11 @@ loop.animate <- function() {
 }
 
 # create GIF of all edges
-saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots.gif", ani.width = 500, ani.height = 1000,
-        imgdir = data_path)
+# saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots.gif", ani.width = 500, ani.height = 1000,
+#         imgdir = data_path)
 ```
 
+And another gif showing the profile across waves, as well as the ipsative consistency (profile correlation) across waves.  
 ```{r}
 draw.a.plot <- function(sid){
   df <- gVAR_fit %>% unnest(contemp) %>%
@@ -674,10 +672,11 @@ loop.animate <- function() {
 }
 
 # create GIF of all edges
-saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots_ew.gif", ani.width = 250, ani.height = 500,
-        imgdir = data_path)
+# saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots_ew.gif", ani.width = 250, ani.height = 500,
+#         imgdir = data_path)
 ```
 
+Given that each person has an estimate of ipsative consistency, we look at individual differences in ipsative consistency by looking at a histogram of the the profile correlations.   
 ```{r}
 gVAR_fit %>% unnest(contemp) %>%
   full_join(gVAR_fit %>% unnest(temp) %>% rename(Var1 = from, Var2 = to)) %>%
@@ -705,47 +704,35 @@ ggsave(file = sprintf("%s/consistency_histogram.png", data_path), width = 6, hei
 
 # Challenges
 
-## Idiographic Scale Development
+## Velocity  
 ```{r}
-mn2016 <- sprintf("%s/nm_2016.csv", data_path) %>% read.csv(., stringsAsFactors = F) %>% tbl_df 
-
-mn2016 %>% 
-  gather(key = item, value = weight, -Var) %>%
-  separate(item, c("Process", "Respondant"), sep = "_") %>%
-  mutate(Retain = ifelse(grepl("[*]", weight) == T, "Keep", "Toss"),
-         weight = as.numeric(str_remove(weight, "[*]"))) %>%
-  filter(Respondant %in% c("R1", "R2", "R3") & Process == "P1") %>%
-  ggplot(aes(x = Var, y = weight, group = Respondant)) +
-  scale_x_continuous(limits = c(.5,6.5), breaks = seq(1,6,1)) +
-  scale_color_manual(values = c("blue", "gray"))+
-    geom_line(aes(linetype = Respondant)) +
-  geom_point(aes(shape = Respondant, color = Retain), size = 3)+
-  geom_hline(aes(yintercept = 0)) +
-  labs(x = "Indicator", y = "Factor Loading")+
-  facet_grid(~Process) +
+tibble(
+  Hour = 1:10,
+  z = c(0,1,4,7,1,-2,-4,0,1,1)
+) %>%
+  mutate(Hour = Hour*2/5) %>%
+  ggplot(aes(x = Hour, y = z)) +
+  geom_hline(aes(yintercept = 0), linetype = "dashed") +
+  geom_smooth(se = F, color = "blue", span = 1.5) +
   theme_classic() +
-  theme(legend.position = "bottom",
-        axis.text = element_text(face = "bold", size = rel(1.1)),
-        axis.title = element_text(face = "bold", size = rel(1.2)),
-        legend.title = element_text(face = "bold", size = rel(1.2)),
-        legend.text = element_text(face = "bold", size = rel(1.1)),
-        strip.background = element_rect(fill = "blue", color = NULL),
-        strip.text = element_text(face = "bold", size = rel(1.2), color = "white"))
-ggsave(file = sprintf("%s/p_filtering.png", data_path), width = 6, height = 4)  
+  theme(axis.text = element_text(face = "bold", size = rel(1.2)),
+        axis.title = element_text(face = "bold", size = rel(1.2)))
+ggsave(sprintf("%s/displacement.png", data_path), width = 6, height = 3)
 ```
 
-
-### Idiographic Factor Analyses
+## Psychometrics  
+### Idiographic Factor Analyses  
+To highlight how indivdiuals may manifest the same traits differently or the same manifestations may be indicators for different traits, I'm going to run some simple EFA's to extract 2 factor models for each subject. 
 ```{r}
 fa_fun <- function(df){df <- df %>% select(A_rude:connected); cor(df, use = "pairwise")}
 gVAR_fit <- gVAR_fit %>%
   mutate(cor = map(data, possibly(fa_fun, NA_real_)),
-         fa = map(cor, possibly(~fa(., nfactors = 7, rotate = "varimax"), NA_real_))#,
+         fa = map(cor, possibly(~fa(., nfactors = 2, rotate = "varimax"), NA_real_))#,
          # vss = map(data, possibly(~vss(., n = 8, rotate = "varimax", plot = F, n.obs = nrow(.)), NA_real_))
          )
 ```
 
-####Idiographic Factors
+Now, we'll pull out the loadings and assign different indicators to different factors. Again, this is largely for demonstrative purposes. 
 ```{r, results = 'hide'}
 eigen_fun <- function(x){
   x <- sum(x$values > 1, na.rm = T)
@@ -765,14 +752,13 @@ loadings_fun <- function(fa){
 }
 
 sink("/dev/null")
-#eigenvalue > 1 rule
 gVAR_fit <- gVAR_fit %>%
   mutate(eigen_factor = map_dbl(fa, possibly(eigen_fun, NA_real_)),
          Vacc_first = map_dbl(fa, possibly(~print(.)$Vaccounted[3,1], NA_real_)),
-         Vacc_eigen = map2_dbl(fa, eigen_factor, possibly(Vaccounted_fun, NA_real_)), 
-         loadings = map(fa, possibly(loadings_fun, NA_real_)))
+         Vacc_eigen = map2_dbl(fa, eigen_factor, possibly(Vaccounted_fun, NA_real_)),           loadings = map(fa, possibly(loadings_fun, NA_real_)))
 sink()
 
+# just going to keep the first factor and loadings that meet the arbitrary minimum
 keep_fun <- function(load){
   (load %>% filter(factor == "MR1" & Retain == "Keep"))$var
 }
@@ -782,6 +768,8 @@ gVAR_fit <- gVAR_fit %>%
 ```
 
 ```{r, results = 'asis'}
+# going to plot two people to show how the "same" manifestations might not 
+# look the same for different people 
 gVAR_fit %>% filter(!is.na(loadings)) %>% unnest(loadings) %>%
   filter(wave == 1) %>%
   mutate(top = dense_rank(Vacc_first),
@@ -789,6 +777,7 @@ gVAR_fit %>% filter(!is.na(loadings)) %>% unnest(loadings) %>%
          SID = as.character(SID)) %>% 
   filter(top == 1 | bottom == 1) %>%
   filter(factor == "MR1") %>%
+  filter(grepl("A_", var) | grepl("E_", var) | grepl("C_", var) | grepl("N_", var)) %>%
   ggplot(aes(x = var, y = weight, group = SID)) +
   # scale_x_continuous(limits = c(.5,6.5), breaks = seq(1,6,1)) +
   scale_color_manual(values = c("blue", "gray"))+
@@ -808,6 +797,8 @@ gVAR_fit %>% filter(!is.na(loadings)) %>% unnest(loadings) %>%
         axis.text.x = element_text(angle=45, hjust = 1))
 ggsave(file = sprintf("%s/p_filtering.png", data_path), width = 6, height = 4)  
 
+# let's plot these for people who have a lot of items that load highly on
+# the first factor or few items that load highly on it
 gVAR_fit %>% filter(!is.na(loadings)) %>% unnest(loadings) %>%
   filter(wave == 1) %>%
   mutate(top = dense_rank(Vacc_first),
@@ -815,12 +806,12 @@ gVAR_fit %>% filter(!is.na(loadings)) %>% unnest(loadings) %>%
          SID = as.character(SID)) %>% 
   filter(top %in% 1:6 | bottom %in% 1:6) %>%
   filter(factor == "MR1") %>%
-  filter(grepl("A_", var) | grepl("E_", var) | grepl("C_", var) | grepl("N_", var)) %>% 
+  filter(grepl("A_", var) | grepl("E_", var) | grepl("C_", var) | grepl("N_", var)) %>% # plot
   ggplot(aes(x = var, y = weight, group = SID)) +
   # scale_x_continuous(limits = c(.5,6.5), breaks = seq(1,6,1)) +
     scale_color_manual(values = c("blue", "gray"))+
     geom_line() +
-    geom_point(aes(color = Retain), size = 3)+
+    geom_point(aes(color = Retain), size = 3) +
     geom_hline(aes(yintercept = 0)) +
     labs(x = "Indicator", y = "Factor Loading")+
     facet_wrap(~SID, nrow = 3) +
@@ -837,6 +828,7 @@ ggsave(file = sprintf("%s/p_filtering_agg.png", data_path), width = 11, height =
 ```
 
 ## Aggregation  
+Last, the question of aggregation. How do we take a bunch of individual models and link them back to the group or population? I'm going to highlight centrality and density, so I'll keep two networks with really high density and two with really low density.  
 ```{r}
 subs <- (gVAR_fit %>% 
   unnest(contemp) %>% 
@@ -850,7 +842,7 @@ subs <- (gVAR_fit %>%
   filter((rank %in% 1:2 | rank2 %in% 1:2) & wave == 1) %>% 
   arrange(rank))$SID
 
-pdf("~/Box/network/presentations/APS 2018/agg_nets.pdf", width = 4, height = 4)
+pdf(sprintf("%s/agg_nets.pdf", data_path), width = 4, height = 4)
 par(mfrow = c(2,2))
 gVAR_fit %>%
   filter(wave == 1 & SID %in% subs) %>%
@@ -861,6 +853,13 @@ gVAR_fit %>%
   mutate(map(contemp_plot, plot))
 dev.off()
 
-
+par(mfrow = c(2,2))
+gVAR_fit %>%
+  filter(wave == 1 & SID %in% subs) %>%
+  mutate(SID = factor(SID, levels = subs)) %>%
+  arrange(SID) %>%
+  select(SID, wave, temp_plot, contemp_plot) %>%
+  arrange(wave, desc(SID)) %>%
+  mutate(map(contemp_plot, plot))
 ```
 
