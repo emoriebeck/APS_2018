@@ -1,0 +1,15 @@
+old_name,item_text,scale,new_name,rev_code
+esm.IDnum,identification number,numeric variable; ,SID,
+esm.PRO01,frequency,numeric variable; ,freq,
+esm.PRO03,hour block survey that the responses correspond to,numeric variable; ,hourBlock,
+esm.PRO04,day of the study that the survey was completed,numeric variable; ,day,
+esm.PRO05,"""real_order?""",numeric variable; ,beepvar,
+esm.BFI37,"During the last hour, how rude were you?","Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very",A_rude,1
+esm.BFI21,"During the last hour, how quiet were you?","Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very",E_quiet,1
+esm.BFI23,"During the last hour, how lazy were you?","Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very",C_lazy,1
+esm.BFI09,"During the last hour, how relaxed were you?","Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very",N_relaxed,1
+esm.BFI04,"During the last hour, did you feel 'depressed, blue'?","Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very",N_depressed,0
+esm.BFI36,"During the last hour, how 'outgoing, sociable' were you?","Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very",E_outgoing,0
+esm.BFI32,"During the last hour, how 'considerate, kind' were you?","Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very",A_kind,0
+esm.BFI13,"During the last hour, how reliable were you?","Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very",C_reliable,0
+esm.BFI19,"During the last hour, how worried were you?","Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very",N_worried,0

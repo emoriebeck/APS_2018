@@ -1,0 +1,866 @@
+---
+title: "Do changes in personality imply changes in behavior? A longitudinal ESM study"
+author: 
+  - "Emorie D Beck"
+date: "`r Sys.setlocale('LC_TIME', 'C'); format(Sys.time(), '%d\\\\. %B %Y')`"
+output:
+  html_document:
+    theme: united
+    highlight: tango
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float: true
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F, message = F, error = F)
+```
+
+
+# Workspace
+## Packages
+```{r packages}
+library(lavaan)
+library(psych)
+library(knitr)
+library(kableExtra)
+library(qgraph)
+library(graphicalVAR)
+library(mlVAR)
+library(animation)
+library(stringr)
+library(plyr)
+library(tidyverse)
+```
+
+```{r, eval = T}
+data_path <- "~/Box/network/presentations/APS 2018"
+
+esm_codebook <- sprintf("%s/Codebook.csv", data_path) %>%
+  read.csv(., stringsAsFactors = F) %>% 
+  tbl_df
+```
+
+```{r eval = F}
+subs <- sprintf("%s/subs.csv", data_path) %>% read.csv %>% tbl_df
+
+wave1_all <- sprintf("%s/data/esm_w1_RENAMED.csv",     data_path) %>% 
+  read.csv %>% 
+  tbl_df %>%
+  select(one_of(paste(esm_codebook$old_name, "w1", sep = "."))) %>%
+  mutate(esm.IDnum.w1 = mapvalues(esm.IDnum.w1, subs$old, subs$new)) 
+wave4_all <- sprintf("%s/data/esm_w4_RENAMED_all.csv", data_path) %>% 
+  read.csv %>% 
+  tbl_df %>%
+  select(one_of(paste(esm_codebook$old_name, "w4", sep = "."))) %>%
+  mutate(esm.IDnum.w4 = mapvalues(esm.IDnum.w4, subs$old, subs$new)) 
+wave7_all <- sprintf("%s/data/esm_w7_RENAMED_all.csv", data_path) %>% 
+  read.csv %>% 
+  tbl_df %>%
+  select(one_of(paste(esm_codebook$old_name, "w7", sep = "."))) %>%
+  mutate(esm.IDnum.w7 = mapvalues(esm.IDnum.w7, subs$old, subs$new)) 
+
+write.csv(wave1_all, sprintf("%s/data/esm_w1_redacted.csv", data_path), row.names = F)
+write.csv(wave4_all, sprintf("%s/data/esm_w4_redacted.csv", data_path), row.names = F)
+write.csv(wave7_all, sprintf("%s/data/esm_w7_redacted.csv", data_path), row.names = F)
+```
+
+```{r}
+wave1_all <- sprintf("%s/data/esm_w1_redacted.csv", data_path) %>% read.csv %>% tbl_df
+wave4_all <- sprintf("%s/data/esm_w4_redacted.csv", data_path) %>% read.csv %>% tbl_df
+wave7_all <- sprintf("%s/data/esm_w7_redacted.csv", data_path) %>% read.csv %>% tbl_df
+
+old.names <- esm_codebook$old_name
+new.names <- esm_codebook$new_name
+
+#Getting necessary columns
+#Keeping subject ID and all esm.BFI items
+w1 <- wave1_all %>%
+  select(one_of(paste(old.names, "w1", sep = "."))) %>%
+  setNames(new.names) %>% # change column names
+  mutate(Wave = "S1") 
+w4 <- wave4_all %>%
+  select(one_of(paste(old.names, "w4", sep = "."))) %>%
+  setNames(new.names) %>% # change column names
+  mutate(Wave = "S4")
+w7 <- wave7_all %>%
+  select(one_of(paste(old.names, "w7", sep = "."))) %>%
+  setNames(new.names) %>% # change column names
+  mutate(Wave = "S7")
+
+# short column names (for plots)
+varnames2 <- c("A\nrude", "E\nquiet", "C\nlazy", "N\nrelaxed", "N\ndepressed", "E\noutgoing", "A\nkind", 
+               "C\nreliable", "N\nworried", "positive\nemotion", "negative\nemotion", "authentic", "self\nesteem", 
+               "happy", "lonely", "academic\nmotiv", "around\nothers", "connected")
+
+# create wave variable before combining data sets.
+w4$Wave <- "4"
+w7$Wave <- "7"
+# merge wave 4 and 7 data sets
+w2 <- w4 %>% full_join(w7)
+
+# retain cases where all personality data are retained
+w1_com <- w1[complete.cases(w1[,c(7:11, 13:23)]),]
+w2_com <- w2[complete.cases(w2[,c(7:11, 13:23)]),]
+
+for (i in unique(w1_com$SID)){
+  mean_A_rude <- mean(w1_com$A_rude[w1_com$SID == i], na.rm = T)
+  w1_com$A_rude[is.na(w1_com$A_rude) & w1_com$SID == i] <- mean_A_rude
+  mean_A_kind <- mean(w1_com$A_kind[w1_com$SID == i], na.rm = T)
+  w1_com$A_kind[is.na(w1_com$A_kind) & w1_com$SID == i] <- mean_A_kind
+}
+
+for (i in unique(w2_com$SID)){
+  mean_A_rude <- mean(w2_com$A_rude[w2_com$SID == i], na.rm = T)
+  w2_com$A_rude[is.na(w2_com$A_rude) & w2_com$SID == i] <- mean_A_rude
+  mean_A_kind <- mean(w2_com$A_kind[w2_com$SID == i], na.rm = T)
+  w2_com$A_kind[is.na(w2_com$A_kind) & w2_com$SID == i] <- mean_A_kind
+}
+
+# for waves 4 and 7, create a variable that combines wave and day of study
+w2_com$waveDay <- paste(w2_com$Wave, w2_com$day, sep = ".")
+
+# Make numeric subject IDs for each df because mlVAR won't run for factors #
+w1_com$SID2 <- as.numeric(as.character(w1_com$SID))
+w2_com$SID2 <- as.numeric(as.character(w2_com$SID))
+
+jitter_fun <- function(df){
+  sd_fun <- function(x){if(sd(x, na.rm = T) == 0) jitter(x, amount = runif(1,0,.05)) else x}
+  df2 <- data.frame(apply(df, 2, sd_fun))
+  colnames(df2) <- colnames(df2)
+  return(df2)
+}
+
+w1_com <- tbl_df(w1_com) %>%
+  group_by(SID) %>%
+  arrange(day, hourBlock) %>%
+  mutate(beepvar3 = seq(1, n(), 1)) %>%
+  ungroup() %>%
+  select(SID, SID2, beepvar3, A_rude:connected) %>%
+  group_by(SID) %>%
+  mutate_if(is.integer, as.numeric) %>%
+  mutate(count = n(), wave = "1") %>%
+  filter(count > 10) 
+
+w1_test <- w1_com %>%
+  group_by(SID, SID2, count, wave) %>% 
+  nest() %>%
+  mutate(data2 = map(data, jitter_fun)) %>%
+  unnest(data2, .drop = T)
+
+w2_com <- tbl_df(w2_com) %>%
+  group_by(SID) %>%
+  arrange(waveDay, hourBlock) %>%
+  mutate(beepvar3 = seq(1, n(), 1)) %>%
+  ungroup() %>%
+  select(SID, SID2, beepvar3, A_rude:connected) %>%
+  group_by(SID) %>%
+  mutate_if(is.integer, as.numeric) %>%
+  mutate(count = n(), wave = "2") %>%
+  filter(count > 10) 
+
+w2_test <- w2_com %>%
+  group_by(SID, SID2, count, wave) %>% 
+  nest() %>%
+  mutate(data2 = map(data, jitter_fun)) %>%
+  unnest(data2, .drop = T)
+
+# save those subjects to a vector
+subs2_w1 <- as.character(unique(w1_test$SID))
+subs2_w2 <- as.character(unique(w2_test$SID))
+
+#compute scale scores for BF domains
+#first create the keys by location (the conventional way)
+keys.list <- list(
+  extraversion.esm = c(-1, 6),
+  agreeableness.esm = c(-1, 7),
+  conscientiousness.esm = c(-3, 8),
+  neuroticism.esm = c(-4, 5, 9))
+keys <- make.keys(9,keys.list,item.labels=colnames(w1_com)[6:14])
+
+w1_pop <- w1_com; w2_pop <- w2_com
+
+ncol_w1 <- dim(w1_pop)[2]; ncol_w2 <- dim(w2_pop)[2]
+w1_pop[(ncol_w1 + 1):(ncol_w1 + 4)] <- scoreItems(keys,w1_pop[,6:14],min=1,max=5)$scores
+w2_pop[(ncol_w2 + 1):(ncol_w2 + 4)] <- scoreItems(keys,w2_com[,6:14],min=1,max=5)$scores
+
+colnames(w1_pop)[(ncol_w1 + 1):(ncol_w1 + 4)] <- names(keys.list)
+colnames(w2_pop)[(ncol_w2 + 1):(ncol_w2 + 4)] <- names(keys.list)
+
+esm.composites <- w1_pop %>% mutate(wave = "1") %>% ungroup() %>%
+  select(SID, wave, A_rude:connected, extraversion.esm:neuroticism.esm) %>%
+  full_join(w2_pop %>% mutate(wave = "2") %>%
+              select(SID, wave, A_rude:connected, extraversion.esm:neuroticism.esm)) %>%
+  mutate(SID = as.character(SID)) %>%
+  gather(key = item, value = value, A_rude:neuroticism.esm) %>%
+  group_by(SID, wave, item) %>%
+  summarize(mean = mean(value, na.rm = T)) %>%
+  spread(key = item, value = mean)
+```
+
+```{r, eval = F}
+library(mlVAR)
+fit1_w1 <- mlVAR(w1_test, varnames[6:23], beepvar = "beepvar3", nCores = 3, scale = F,
+                idvar = "SID", contemporaneous = "orthogonal", temporal = "orthogonal")
+fit1_w2 <- mlVAR(w2_test, varnames[6:23], beepvar = "beepvar3", nCores = 3, scale = F,
+                idvar = "SID", contemporaneous = "orthogonal", temporal = "orthogonal")
+save(fit1_w1, fit1_w2, file = sprintf("%s/mlVAR.RData", data_path))
+
+library(graphicalVAR)
+gVAR_fun <- function(x, SID, wave){
+  print(paste(wave, SID))
+  n <- dim(x)[1]
+  gamma <- 0
+  lambda <- seq(.025, .25, .025)
+  x <- x %>% select(A_rude:connected, -SID2, -beepvar3)
+  fit <-
+    graphicalVAR(x, gamma = gamma, maxit.in = 1000, maxit.out = 1000,
+                      lambda_beta = lambda, lambda_kappa = lambda, 
+                      verbose = T, scale = F, centerWithin = F)
+  return(fit)
+}
+
+gVAR_fit <- w1_test %>%
+  full_join(w2_test) %>%
+  filter(!(SID %in% c("97898", "13518", "64875", "74435", "83106", "97159", "64869", "37024"))) %>%
+  group_by(SID, wave, count) %>%
+  nest() %>%
+  mutate(gVAR_fit = pmap(list(data, SID, wave), possibly(gVAR_fun, NA_real_)))
+save(gVAR_fit, file = "~/Box/network/other projects/EJP Target Article Commentary/graphicalVAR_allSubs.RData")
+```
+
+```{r, eval = T, results = 'hide'}
+load(sprintf("%s/mlVAR.RData", data_path))
+load(sprintf("%s/graphicalVAR_allSubs.RData", data_path))
+
+############################################
+############### population #################
+############################################
+sum_fit1_w1        <- summary(fit1_w1)
+sum_fit1_w2        <- summary(fit1_w2)
+
+temporal_effects_w1 <- tbl_df(sum_fit1_w1$temporal) %>% mutate(wave = "1")
+temporal_effects_w2 <- tbl_df(sum_fit1_w2$temporal) %>% mutate(wave = "2")
+
+contemp_effects_w1 <- fit1_w1$results$Theta$pcor$mean
+contemp_effects_w2 <- fit1_w2$results$Theta$pcor$mean
+
+contemp_long_fun <- function(fit, Wave){
+  colnames(fit) <- colnames(w1)[6:23]; rownames(fit) <- colnames(w1)[6:23]
+  fit <- fit[,order(colnames(fit))]
+  fit <- fit[order(rownames(fit)),]
+  fit[lower.tri(fit, diag = T)] <- NA
+  fit.long <- tbl_df(fit) %>%
+    mutate(Var1 = colnames(.),
+           type = "Contemporaneous", wave = Wave) %>%
+    gather(key = Var2, value = weight, A_kind:self_esteem) %>%
+    filter(!is.na(weight)) %>%
+    unite(var, Var1, Var2, sep = ".", remove = F)
+}
+
+contemp_eff_w1 <- contemp_long_fun(contemp_effects_w1, "1")
+contemp_eff_w2 <- contemp_long_fun(contemp_effects_w2, "2")
+
+cors <- data.frame(
+  comparison = c("W1 v. W2"),
+  type = c("temporal", "contemporaneous"),
+  raw_cor = 
+    c(cor(sum_fit1_w1$temporal$fixed,
+          sum_fit1_w2$temporal$fixed),
+      cor(sum_fit1_w1$contemporaneous$pcor,
+          sum_fit1_w2$contemporaneous$pcor)))
+
+pander::pandoc.table(cors, summary = F, 
+             caption = "Correlations of Temporal Fixed Effects Edges Across Waves")
+
+
+############################################
+############## idiographic #################
+############################################
+
+temp_fun <- function(fit, SID){
+  PDC <- fit$PDC
+  from <- row.names(PDC)
+  PDC.long <- tbl_df(PDC) %>%
+    mutate(from = from, type = "Temporal") %>%
+    gather(key = to, value = weight, -from, -type)
+}
+
+contemp_mat_fun <- function(fit){fit$PCC}
+
+contemp_long_fun <- function(fit){
+  PCC <- fit$PCC
+  PCC <- PCC[,order(colnames(PCC))]
+  PCC <- PCC[order(rownames(PCC)),]
+  PCC[lower.tri(PCC, diag = T)] <- NA
+  vars <- rownames(PCC)
+  PCC.long <- tbl_df(PCC) %>%
+    mutate(Var1 = vars,
+           type = "Contemporaneous") %>%
+    gather(key = Var2, value = weight, -Var1, -type) %>%
+    filter(!is.na(weight)) %>%
+    unite(var, Var1, Var2, sep = ".", remove = F)
+}
+
+gVAR_fit <- gVAR_fit %>%
+  filter(!is.na(gVAR_fit)) %>%
+  mutate(temp = map2(gVAR_fit, SID, temp_fun),
+         contemp_mat = map(gVAR_fit, contemp_mat_fun),
+         contemp = map(gVAR_fit, contemp_long_fun))
+
+edge_colors <- RColorBrewer::brewer.pal(8, "Purples")[c(4,6,8)]
+
+idio_plot_fun <- function(data, subject, wave, type){
+  if(type == "Temporal"){data_mod <- data$PDC}
+  else{data_mod <- data$PCC}
+  n <- nrow(data$PDC)
+  if(n == 9){b5_groups <- list(A = c(1,7), E = c(2, 6), C = c(3,8), N = c(4,5,9))}
+  else{b5_groups <- list(A = c(1,7), E = c(2, 6), C = c(3,8), N = c(4,5,9), other = 10:n)}
+  subject <- ifelse(subject == "10506", "1",
+             ifelse(subject == "39941", "2", subject))
+  plot <- 
+    qgraph(data_mod, layout = "spring", loop = .7, node.width = 1.85, edge.width = 1, esize = 7,
+           title = sprintf("%s Wave %s for S%s", type, wave, subject), label.font = 2, repulsion = .8,
+                   label.fill.vertical = 1, label.fill.horizontal = 1, edge.color = "black",
+                   groups = b5_groups, color = rev(t(RColorBrewer::brewer.pal(9, "Purples")[seq(1,9,2)])),
+                   legend = F, DoNotPlot = TRUE, mar = c(4,4,4,4))
+  #change lines to dashed
+  plot$graphAttributes$Edges$lty[plot$Edgelist$weight < 0] <- 2
+  #change line colors
+  plot$graphAttributes$Edges$color <-
+    ifelse(abs(plot$Edgelist$weight) <.1, edge_colors[1],
+    ifelse(abs(plot$Edgelist$weight) <.2, edge_colors[2], edge_colors[3]))
+  dark_colors <- c("#9E9AC8", "#807DBA", "#6A51A3", "#54278F", "#3F007D")
+  plot$graphAttributes$Nodes$label.color[plot$graphAttributes$Nodes$color %in% dark_colors] <- "white"
+  vars <- str_replace(colnames(data$PDC), "_", "\n")
+  #change variable names
+  plot$graphAttributes$Nodes$labels <- vars
+  return(plot)
+}
+
+gVAR_fit <- gVAR_fit %>%
+  mutate(temp_plot = pmap(list(gVAR_fit, SID, wave, "Temporal"),
+                          possibly(idio_plot_fun, NA_real_)),
+         contemp_plot = pmap(list(gVAR_fit, SID, wave, "Contemporaneous"),
+                          possibly(idio_plot_fun, NA_real_)))
+```
+
+
+# Introduction  
+## Structure  
+```{r results = 'hide', warning = FALSE, message = FALSE, fig.height=4, fig.width=8}
+pdf("~/Box/network/presentations/APS 2018/structure_plot.pdf", width = 8, height = 4)
+par(mfrow = c(1,2))
+gVAR_fit %>%
+filter(SID %in% c("10506", "39941") & wave == 1) %>%
+select(SID, wave, temp_plot, contemp_plot) %>%
+arrange(wave, desc(SID)) %>%
+mutate(map(contemp_plot, plot))
+dev.off()
+```
+
+### Structure Difference gifs
+```{r}
+subjects <- (gVAR_fit %>% group_by(SID) %>% summarize(n = n()) %>% filter(n == 2))$SID
+
+draw.a.plot <- function(sid){
+  par(mfrow = c(1,1))
+  gVAR_fit %>%
+  filter(SID == sid & wave == 1) %>%
+  select(SID, wave, temp_plot, contemp_plot) %>%
+  arrange(wave, desc(SID)) %>%
+  mutate(map(contemp_plot, plot))
+}
+
+#set up function to loop through the draw.a.plot() function
+loop.animate <- function() {
+    lapply(subjects, function(i) {
+        draw.a.plot(i)
+    })
+}
+
+# create GIF of all edges
+saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots_single.gif", ani.width = 500, ani.height = 500,
+        imgdir = data_path)
+```
+
+```{r}
+draw.a.plot <- function(sid){
+  sub <- subjects[seq(1,which(subjects == sid))]
+  df <- gVAR_fit %>% unnest(contemp) %>%
+    filter(SID %in% sub & wave == 1) 
+  df %>%
+    ggplot(aes(x = var, y = weight, color = factor(SID))) +
+      # scale_color_manual(values = c("royalblue", "red")) +
+      # geom_point(aes(shape = wave)) +
+      geom_line(aes(group = SID), size = .5) +
+      # geom_label(aes(x = (nrow(.)/2)-4, y = 0, label = sprintf("r = %.2f", unique(r))),
+                 # fill= "royalblue", color = "white", size = 6) +
+      labs(x = "") +
+      coord_flip() +
+      theme_classic() +
+      theme(axis.text.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            legend.position = "none",
+            legend.text = element_text(face = "bold"),
+            legend.title = element_text(face = "bold"),
+            axis.text.x = element_text(face = "bold", size = rel(1.2)),
+            axis.title.x = element_text(face = "bold", size = rel(1.2)),
+            plot.title = element_text(face = "bold", size = rel(1.5), hjust = .5),
+            plot.subtitle = element_text(face = "bold", size = rel(1.2), hjust = .5))
+}
+
+loop.animate <- function() {
+    lapply(subjects, function(i) {
+        print(draw.a.plot(i))
+    })
+}
+
+# create GIF of all edges
+saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots_ew_structure.gif", ani.width = 250, ani.height = 500,
+        imgdir = data_path)
+```
+
+## Processes  
+```{r}
+pdf("~/Box/network/presentations/APS 2018/process_plot.pdf", width = 4, height = 4)
+par(mfrow = c(1,1))
+gVAR_fit %>%
+filter(SID %in% c("10506") & wave == 1) %>%
+select(SID, wave, temp_plot, contemp_plot) %>%
+arrange(wave, desc(SID)) %>%
+mutate(map(contemp_plot, plot))
+dev.off()
+
+df <- (gVAR_fit %>% filter(SID =="19497" & wave == 1))$data[[1]]
+
+gamma <- 0
+lambda <- seq(.025, .25, .025)
+x <- df %>% select(A_rude:N_worried, around_others)
+fit_t <- graphicalVAR(
+  x
+  , gamma = gamma
+  , maxit.in = 1000
+  , maxit.out = 1000
+  , lambda_beta = lambda
+  , lambda_kappa = lambda
+  , verbose = T
+  , scale = F
+  , centerWithin = F
+  )
+
+x <- df %>% select(A_rude:N_worried, aca_motiv)
+fit_e <- graphicalVAR(
+  x
+  , gamma = gamma
+  , maxit.in = 1000
+  , maxit.out = 1000
+  , lambda_beta = lambda
+  , lambda_kappa = lambda
+  , verbose = T
+  , scale = F
+  , centerWithin = F
+  )
+
+x <- df %>% select(A_rude:N_worried, authentic)
+fit_s <- graphicalVAR(
+  x
+  , gamma = gamma
+  , maxit.in = 1000
+  , maxit.out = 1000
+  , lambda_beta = lambda
+  , lambda_kappa = lambda
+  , verbose = T
+  , scale = F
+  , centerWithin = F
+  )
+
+x <- df %>% select(A_rude:N_worried)
+fit <- graphicalVAR(
+  x
+  , gamma = gamma
+  , maxit.in = 1000
+  , maxit.out = 1000
+  , lambda_beta = lambda
+  , lambda_kappa = lambda
+  , verbose = T
+  , scale = F
+  , centerWithin = F
+  )
+
+temp   <- temp_fun(fit,   19497)
+temp_t <- temp_fun(fit_t, 19497)
+temp_e <- temp_fun(fit_e, 19497)
+temp_s <- temp_fun(fit_s, 19497)
+
+pdf("~/Box/network/presentations/APS 2018/processes_plot.pdf", width = 8, height = 8)
+par(mfrow = c(2,2))
+plot(idio_plot_fun(fit, "19497", "1", "Temporal"))
+plot(idio_plot_fun(fit_t, "19497", "1", "Temporal"))
+# title("Triggering Situation")
+plot(idio_plot_fun(fit_e, "19497", "1", "Temporal"))
+# title("Expectancies")
+plot(idio_plot_fun(fit_s, "19497", "1", "Temporal"))
+# title("States / State Expression")
+dev.off()
+
+vars <- unique(temp$from)
+
+(temp %>% mutate(model = "Personality") %>%
+  full_join(temp_t %>% mutate(model = "Triggering Situations")) %>%
+  full_join(temp_e %>% mutate(model = "Expectancies")) %>%
+  full_join(temp_s %>% mutate(model = "States / State Expressions")) %>%
+  filter(from %in% vars & to %in% vars) %>% 
+  spread(key = model, value = weight) %>%
+  select(Personality, everything(),-from, -type, -to) %>% 
+  as.matrix() %>% cor(., use = "pairwise"))[,1]
+
+df <- temp %>% mutate(model = "Personality") %>%
+  full_join(temp_t %>% mutate(model = "Triggering Situations")) %>%
+  full_join(temp_e %>% mutate(model = "Expectancies")) %>%
+  full_join(temp_s %>% mutate(model = "States / State Expressions")) %>%
+  filter(from %in% vars & to %in% vars) %>%
+  mutate_at(vars(from, to), funs(str_replace(., "_", " "))) %>%
+  mutate(model = factor(model, levels = c("Personality", "Triggering Situations", "Expectancies", "States / State Expressions")))
+  # unite(var, from, to, sep = " -> ") %>%
+
+model_fun <- function(situations){
+  df %>% filter(model %in% situations) %>%
+    ggplot(aes(x = from, y = weight, color = model, group = model)) +
+      geom_line() +
+      facet_grid(to~.) +
+      labs(x = NULL, color = NULL)+
+      coord_flip() +
+      theme_classic() +
+      theme(legend.position = c(.3, .4),
+            axis.text.y = element_text(face = "bold", size = rel(.8)),
+            axis.text.x = element_text(face = "bold", size = rel(1.2)),
+            legend.text = element_text(face = "bold", size = rel(.85)),
+            legend.background = element_rect(fill = NULL, color = NULL),
+            strip.text = element_text(face = "bold", color = "white"),
+            strip.background = element_rect(fill = "#6f30a0", color = NULL))
+  file <- str_remove(situations[length(situations)], "/")
+  ggsave(sprintf("%s/processes_profile_%s.png", data_path, file), width = 4.5, height = 9)
+}
+
+model_fun("Personality")
+model_fun(c("Personality", "Triggering Situations"))
+model_fun(c("Personality", "Triggering Situations", "Expectancies"))
+model_fun(c("Personality", "Triggering Situations", "Expectancies", "States / State Expressions"))
+
+```
+
+## Development
+### Difference Plots  
+```{r}
+df <- gVAR_fit %>% unnest(contemp) %>% select(-count) %>%
+  filter(SID %in% 10506) %>%
+  spread(key = wave, value = weight) %>%
+  mutate(change = `1` - `2`) %>%
+  filter(change != 0) %>%
+  gather(key = wave, value = weight, `1`, `2`) %>%
+  filter(var %in% unique(var)[1:20]) %>%
+  group_by(SID, var) %>%
+  mutate(lower = min(weight, na.rm = T), upper = max(weight, na.rm = T)) %>%
+v <- tibble(x = 1:20, y = unique(df$var))
+
+df <- df %>% mutate(v = as.numeric(plyr::mapvalues(var, v$y, v$x)))
+
+mwave <- function(x){
+  x <- x[order(x$v), ]
+  y <- x[-c(1,2, nrow(x) -1, nrow(x)), ]
+  x <- rbind(x,y)
+  x <- x[order(x$v), ]
+  x$group <- rep(letters[1:(nrow(x)/4)], each = 4)
+  return(x)
+}
+
+df2 <- plyr::ddply(df, .(SID), mwave)
+
+mgroup <- function(x){
+  x <- x[order(x$weight), ]
+  left <- x[x$v == min(x$v), ]
+  right <- x[x$v == max(x$v), ]
+  if(all(left$wave == right$wave)){
+    left <- left[order(left$weight, decreasing = T), ]
+    right <- right[order(right$weight, decreasing = F), ]
+    return(rbind(left, right))
+  } else{
+    return(x[order(x$v), ])
+  }
+}
+
+df2 <- ddply(df2, .(group), mgroup)
+
+df %>%
+  ggplot(aes(x = v, y = weight, group = wave)) +
+  scale_x_continuous(breaks = seq(1,20,1), labels = v$y) +
+  geom_line(aes(color = factor(wave))) +
+  # geom_point(aes(color = factor(wave))) +
+  geom_polygon(data = df2, aes(y = weight, group = group), alpha = .3, fill = "springgreen3") +
+  labs(x = NULL, y = "Edge Weight", color = "Wave") +
+  theme_classic()+
+  theme(axis.text.x = element_text(face = "bold", angle = 45, hjust = 1, size = rel(.75)),
+        legend.position = c(.8,.8),
+        axis.text.y = element_text(face = "bold", size = rel(1.2)),
+        axis.title = element_text(face = "bold", size = rel(1.2)),
+        legend.text = element_text(face = "bold", size = rel(1)),
+        legend.title = element_text(face = "bold", size = rel(1)))
+ggsave(sprintf("%s/devel_plot.png", data_path), width = 6, height = 3)
+```
+
+### Cross-Wave gifs
+```{r}
+subs <- (gVAR_fit %>% group_by(SID) %>% summarize(n = n()) %>% filter(n == 2))$SID
+
+draw.a.plot <- function(sid){
+  par(mfrow = c(2,1))
+  gVAR_fit %>%
+  filter(SID == sid) %>%
+  select(SID, wave, temp_plot, contemp_plot) %>%
+  arrange(wave, desc(SID)) %>%
+  mutate(map(contemp_plot, plot))
+}
+
+#set up function to loop through the draw.a.plot() function
+loop.animate <- function() {
+    lapply(subs, function(i) {
+        draw.a.plot(i)
+    })
+}
+
+# create GIF of all edges
+saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots.gif", ani.width = 500, ani.height = 1000,
+        imgdir = data_path)
+```
+
+```{r}
+draw.a.plot <- function(sid){
+  df <- gVAR_fit %>% unnest(contemp) %>%
+    filter(SID == sid) %>%
+    mutate(r = cor(weight[wave == 1], weight[wave == 2], use = "pairwise")) 
+  df %>%
+    ggplot(aes(x = var, y = weight)) +
+      scale_color_manual(values = c("royalblue", "red")) +
+      # geom_point(aes(shape = wave)) +
+      geom_line(aes(group = wave, color = wave)) +
+      # geom_label(aes(x = (nrow(.)/2)-4, y = 0, label = sprintf("r = %.2f", unique(r))),
+                 # fill= "royalblue", color = "white", size = 6) +
+      labs(x = "", title = sprintf("Subject %s", sid), subtitle = sprintf("r = %.2f", unique(df$r))) +
+      coord_flip() +
+      theme_classic() +
+      theme(axis.text.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            legend.position = "bottom",
+            legend.text = element_text(face = "bold"),
+            legend.title = element_text(face = "bold"),
+            axis.text.x = element_text(face = "bold", size = rel(1.2)),
+            axis.title.x = element_text(face = "bold", size = rel(1.2)),
+            plot.title = element_text(face = "bold", size = rel(1.5), hjust = .5),
+            plot.subtitle = element_text(face = "bold", size = rel(1.2), hjust = .5))
+}
+
+loop.animate <- function() {
+    lapply(subjects, function(i) {
+        print(draw.a.plot(i))
+    })
+}
+
+# create GIF of all edges
+saveGIF(loop.animate(), interval = .5, movie.name="PCC_plots_ew.gif", ani.width = 250, ani.height = 500,
+        imgdir = data_path)
+```
+
+```{r}
+gVAR_fit %>% unnest(contemp) %>%
+  full_join(gVAR_fit %>% unnest(temp) %>% rename(Var1 = from, Var2 = to)) %>%
+  select(SID, wave, Var1, Var2, type, weight) %>%
+  spread(key = wave, value = weight) %>% 
+  group_by(type, SID) %>% 
+  summarize(r = cor(`1`, `2`, use = "pairwise")) %>% 
+  filter(!is.na(r)) %>%
+    ggplot(aes(x = r, fill = type)) +
+    scale_fill_manual(values = c("royalblue", "purple")) +
+    xlim(-1,1)+
+    geom_histogram(aes(y =..density..), color = "black", fill = "gray") +
+    geom_density(bw = .1, alpha = .3) +
+    geom_vline(aes(xintercept = 0), linetype = "dashed", size = .8) +
+    facet_grid(.~type) +
+    theme_classic() +
+    theme(legend.position = "none",
+          axis.text = element_text(face = "bold", size = rel(1.2)),
+          axis.title = element_text(face = "bold", size = rel(1.2)),
+          strip.text = element_text(face = "bold", size = rel(1.2), color = "white"),
+          strip.background = element_rect(fill = "#6f30a0"))
+ggsave(file = sprintf("%s/consistency_histogram.png", data_path), width = 6, height = 3)
+```
+
+
+# Challenges
+
+## Idiographic Scale Development
+```{r}
+mn2016 <- sprintf("%s/nm_2016.csv", data_path) %>% read.csv(., stringsAsFactors = F) %>% tbl_df 
+
+mn2016 %>% 
+  gather(key = item, value = weight, -Var) %>%
+  separate(item, c("Process", "Respondant"), sep = "_") %>%
+  mutate(Retain = ifelse(grepl("[*]", weight) == T, "Keep", "Toss"),
+         weight = as.numeric(str_remove(weight, "[*]"))) %>%
+  filter(Respondant %in% c("R1", "R2", "R3") & Process == "P1") %>%
+  ggplot(aes(x = Var, y = weight, group = Respondant)) +
+  scale_x_continuous(limits = c(.5,6.5), breaks = seq(1,6,1)) +
+  scale_color_manual(values = c("blue", "gray"))+
+    geom_line(aes(linetype = Respondant)) +
+  geom_point(aes(shape = Respondant, color = Retain), size = 3)+
+  geom_hline(aes(yintercept = 0)) +
+  labs(x = "Indicator", y = "Factor Loading")+
+  facet_grid(~Process) +
+  theme_classic() +
+  theme(legend.position = "bottom",
+        axis.text = element_text(face = "bold", size = rel(1.1)),
+        axis.title = element_text(face = "bold", size = rel(1.2)),
+        legend.title = element_text(face = "bold", size = rel(1.2)),
+        legend.text = element_text(face = "bold", size = rel(1.1)),
+        strip.background = element_rect(fill = "blue", color = NULL),
+        strip.text = element_text(face = "bold", size = rel(1.2), color = "white"))
+ggsave(file = sprintf("%s/p_filtering.png", data_path), width = 6, height = 4)  
+```
+
+
+### Idiographic Factor Analyses
+```{r}
+fa_fun <- function(df){df <- df %>% select(A_rude:connected); cor(df, use = "pairwise")}
+gVAR_fit <- gVAR_fit %>%
+  mutate(cor = map(data, possibly(fa_fun, NA_real_)),
+         fa = map(cor, possibly(~fa(., nfactors = 7, rotate = "varimax"), NA_real_))#,
+         # vss = map(data, possibly(~vss(., n = 8, rotate = "varimax", plot = F, n.obs = nrow(.)), NA_real_))
+         )
+```
+
+####Idiographic Factors
+```{r, results = 'hide'}
+eigen_fun <- function(x){
+  x <- sum(x$values > 1, na.rm = T)
+}
+
+Vaccounted_fun <- function(fa, nfactor){
+  y <- print(fa)$Vaccounted[3,]
+  z <- y[nfactor]
+  return(z)
+}
+
+loadings_fun <- function(fa){
+  y <- loadings(fa)[,] %>% data.frame %>% select(one_of(paste("MR", 1:2, sep = ""))) %>%
+    mutate(var = rownames(.)) %>%
+    gather(factor, weight, MR1, MR2) %>%
+    mutate(Retain = ifelse(abs(weight) > .4, "Keep", "Toss"))
+}
+
+sink("/dev/null")
+#eigenvalue > 1 rule
+gVAR_fit <- gVAR_fit %>%
+  mutate(eigen_factor = map_dbl(fa, possibly(eigen_fun, NA_real_)),
+         Vacc_first = map_dbl(fa, possibly(~print(.)$Vaccounted[3,1], NA_real_)),
+         Vacc_eigen = map2_dbl(fa, eigen_factor, possibly(Vaccounted_fun, NA_real_)), 
+         loadings = map(fa, possibly(loadings_fun, NA_real_)))
+sink()
+
+keep_fun <- function(load){
+  (load %>% filter(factor == "MR1" & Retain == "Keep"))$var
+}
+
+gVAR_fit <- gVAR_fit %>%
+  mutate(keep = map(loadings, possibly(keep_fun, NA_real_)))
+```
+
+```{r, results = 'asis'}
+gVAR_fit %>% filter(!is.na(loadings)) %>% unnest(loadings) %>%
+  filter(wave == 1) %>%
+  mutate(top = dense_rank(Vacc_first),
+         bottom = dense_rank(desc(Vacc_first)),
+         SID = as.character(SID)) %>% 
+  filter(top == 1 | bottom == 1) %>%
+  filter(factor == "MR1") %>%
+  ggplot(aes(x = var, y = weight, group = SID)) +
+  # scale_x_continuous(limits = c(.5,6.5), breaks = seq(1,6,1)) +
+  scale_color_manual(values = c("blue", "gray"))+
+    geom_line(aes(linetype = SID)) +
+  geom_point(aes(shape = SID, color = Retain), size = 3)+
+  geom_hline(aes(yintercept = 0)) +
+  labs(x = "Indicator", y = "Factor Loading")+
+  facet_grid(~factor) +
+  theme_classic() +
+  theme(legend.position = "bottom",
+        axis.text = element_text(face = "bold", size = rel(1.1)),
+        axis.title = element_text(face = "bold", size = rel(1.2)),
+        legend.title = element_text(face = "bold", size = rel(1.2)),
+        legend.text = element_text(face = "bold", size = rel(1.1)),
+        strip.background = element_rect(fill = "blue", color = NULL),
+        strip.text = element_text(face = "bold", size = rel(1.2), color = "white"),
+        axis.text.x = element_text(angle=45, hjust = 1))
+ggsave(file = sprintf("%s/p_filtering.png", data_path), width = 6, height = 4)  
+
+gVAR_fit %>% filter(!is.na(loadings)) %>% unnest(loadings) %>%
+  filter(wave == 1) %>%
+  mutate(top = dense_rank(Vacc_first),
+         bottom = dense_rank(desc(Vacc_first)),
+         SID = as.character(SID)) %>% 
+  filter(top %in% 1:6 | bottom %in% 1:6) %>%
+  filter(factor == "MR1") %>%
+  filter(grepl("A_", var) | grepl("E_", var) | grepl("C_", var) | grepl("N_", var)) %>% 
+  ggplot(aes(x = var, y = weight, group = SID)) +
+  # scale_x_continuous(limits = c(.5,6.5), breaks = seq(1,6,1)) +
+    scale_color_manual(values = c("blue", "gray"))+
+    geom_line() +
+    geom_point(aes(color = Retain), size = 3)+
+    geom_hline(aes(yintercept = 0)) +
+    labs(x = "Indicator", y = "Factor Loading")+
+    facet_wrap(~SID, nrow = 3) +
+    theme_classic() +
+    theme(legend.position = "bottom",
+          axis.text = element_text(face = "bold", size = rel(1.1)),
+          axis.title = element_text(face = "bold", size = rel(1.2)),
+          legend.title = element_text(face = "bold", size = rel(1.2)),
+          legend.text = element_text(face = "bold", size = rel(1.1)),
+          strip.background = element_rect(fill = "blue", color = NULL),
+          strip.text = element_text(face = "bold", size = rel(1.2), color = "white"),
+          axis.text.x = element_text(angle=45, hjust = 1, size = rel(.7)))
+ggsave(file = sprintf("%s/p_filtering_agg.png", data_path), width = 11, height = 7)  
+```
+
+## Aggregation  
+```{r}
+subs <- (gVAR_fit %>% 
+  unnest(contemp) %>% 
+  group_by(SID, wave) %>% 
+  summarize(density = sum(weight!=0)/n()) %>% 
+  ungroup() %>% 
+  filter(density != 0) %>%
+  group_by(wave) %>% 
+  mutate(rank = rank(density, ties.method = "first"), 
+         rank2 = rank(desc(density), ties.method = "first")) %>% 
+  filter((rank %in% 1:2 | rank2 %in% 1:2) & wave == 1) %>% 
+  arrange(rank))$SID
+
+pdf("~/Box/network/presentations/APS 2018/agg_nets.pdf", width = 4, height = 4)
+par(mfrow = c(2,2))
+gVAR_fit %>%
+  filter(wave == 1 & SID %in% subs) %>%
+  mutate(SID = factor(SID, levels = subs)) %>%
+  arrange(SID) %>%
+  select(SID, wave, temp_plot, contemp_plot) %>%
+  arrange(wave, desc(SID)) %>%
+  mutate(map(contemp_plot, plot))
+dev.off()
+
+
+```
+
